@@ -8,12 +8,14 @@ typedef struct {
     uint16_t len;
     uint16_t* dial;
     uint16_t* pos;
+    uint64_t crossed_zero_count; // for part 2
 } safe_t;
 
 safe_t* make_safe(uint16_t dial_max, uint16_t starting_val) {
     safe_t* safe = (safe_t*)malloc(sizeof(safe_t));
     safe->dial = (uint16_t*)malloc(sizeof(uint16_t) * (dial_max) + 1);
     safe->len = dial_max + 1;
+    safe->crossed_zero_count = 0;
     for (uint16_t i = 0; i <= dial_max; i++) {
         safe->dial[i] = i;
         if (i == starting_val)
@@ -24,6 +26,7 @@ safe_t* make_safe(uint16_t dial_max, uint16_t starting_val) {
 
 void reset_safe(safe_t* safe) {
     safe->pos = safe->dial + 50;
+    safe->crossed_zero_count = 0;
 }
 
 uint16_t safe_dial_value(safe_t* safe) {
@@ -35,11 +38,14 @@ uint16_t turn_dial_left(safe_t* safe, uint16_t count) {
         if (safe->pos == safe->dial) {
             safe->pos += safe->len - 1;
             count--;
-            continue;
+        } else {
+            safe->pos--;
+            count--;
         }
 
-        safe->pos--;
-        count--;
+        if (safe_dial_value(safe) == 0 && count > 0) {
+            safe->crossed_zero_count++;
+        }
     }
 
     return safe_dial_value(safe);
@@ -50,11 +56,14 @@ uint16_t turn_dial_right(safe_t* safe, uint16_t count) {
         if (safe->pos == safe->dial + safe->len - 1) {
             safe->pos = safe->dial;
             count--;
-            continue;
+        } else {
+            safe->pos++;
+            count--;
         }
 
-        safe->pos++;
-        count--;
+        if (safe_dial_value(safe) == 0 && count > 0) {
+            safe->crossed_zero_count++;
+        }
     }
     return safe_dial_value(safe);
 }
@@ -63,11 +72,14 @@ void test_safe() {
     safe_t* safe = make_safe(99, 50);
     int password = 0;
     assert(turn_dial_left(safe, 68) == 82);
+    assert(safe->crossed_zero_count == 1);
     assert(turn_dial_left(safe, 30) == 52);
     assert(turn_dial_right(safe, 48) == 0);
     password++;
     assert(turn_dial_left(safe, 5) == 95);
     assert(turn_dial_right(safe, 60) == 55);
+    printf("Got %i, expected %i\n", safe->crossed_zero_count , 2);
+    assert(safe->crossed_zero_count == 2);
     assert(turn_dial_left(safe, 55) == 0);
     password++;
     assert(turn_dial_left(safe, 1) == 99);
@@ -121,7 +133,8 @@ int main() {
         }
     }
     printf("max turns in one rotation: %i\n", max);
-    printf("%i\n", password);
+    printf("part1: %i\n", password);
+    printf("part2: %i\n", safe->crossed_zero_count + password);
 
     fclose(file);
 }

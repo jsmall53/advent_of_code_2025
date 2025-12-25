@@ -42,16 +42,33 @@ uint64_t id_range_last(id_range_t* range) {
     return accum;
 }
 
+void int_to_str(uint64_t num, char* buf, int buf_len) {
+    assert(buf != NULL);
+    snprintf(buf, buf_len - 1, "%zu", num);
+}
 
+#define BUF_LEN 32
 bool id_is_invalid(uint64_t id) {
-    int pow = 10;
-    while (id / pow > 0) {
-        uint64_t temp = id / pow;
-        // printf("%zu, %zu (%d)\n", id, temp, pow);
-        if (id % (temp * pow) == temp) {
-            return true;
+    // int pow = 10;
+    // while (id / pow > 0) {
+    //     uint64_t temp = id / pow;
+    //     // printf("%zu, %zu (%d)\n", id, temp, pow);
+    //     if (id % (temp * pow) == temp) {
+    //         return true;
+    //     }
+    //     pow *= 10;
+    // }
+    char buf[BUF_LEN];
+    int_to_str(id, buf, BUF_LEN);
+    int len = strnlen((const char*)buf, BUF_LEN);
+    if (len % 2 == 0) {
+        char* half_ptr = buf + (len / 2);
+        for (size_t i = 0; i < len / 2; i++) {
+            if (*(buf + i) != *(half_ptr + i)) {
+                return false;
+            }
         }
-        pow *= 10;
+        return true;
     }
     return false;
 }

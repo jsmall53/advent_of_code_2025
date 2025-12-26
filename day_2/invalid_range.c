@@ -61,15 +61,35 @@ bool id_is_invalid(uint64_t id) {
     char buf[BUF_LEN];
     int_to_str(id, buf, BUF_LEN);
     int len = strnlen((const char*)buf, BUF_LEN);
-    if (len % 2 == 0) {
-        char* half_ptr = buf + (len / 2);
-        for (size_t i = 0; i < len / 2; i++) {
-            if (*(buf + i) != *(half_ptr + i)) {
-                return false;
+    for (int block = 1; block <= len / 2; block++) {
+        if (len % block != 0) {
+            continue;
+        }
+
+        bool good = true;
+        for (int i = 0; i < len; i++) {
+            if (buf[i] != buf[i % block]) {
+                good = false;
+                break;
             }
         }
-        return true;
+
+        if (good) {
+            printf("%s is invalid for block size %i\n", buf, block);
+            return true;
+        }
     }
+
+    // Case for block = len / 2
+    // if (len % 2 == 0) {
+    //     char* half_ptr = buf + (len / 2);
+    //     for (size_t i = 0; i < len / 2; i++) {
+    //         if (*(buf + i) != *(half_ptr + i)) {
+    //             return false;
+    //         }
+    //     }
+    //     return true;
+    // }
     return false;
 }
 
@@ -112,7 +132,7 @@ void test_parse() {
 
 }
 
-void test_invalid_ids() {
+void test_invalid_ids_part1() {
     assert(id_is_invalid(100100));
     assert(!id_is_invalid(1234567890));
     assert(id_is_invalid(55));
@@ -120,10 +140,18 @@ void test_invalid_ids() {
     assert(!id_is_invalid(94000094));
 }
 
+void test_invalid_ids_part2() {
+    assert(id_is_invalid(111));
+    assert(!id_is_invalid(112));
+    assert(id_is_invalid(101010101010));
+    assert(id_is_invalid(824824824));
+}
+
 int main() {
     test_parse();
     printf("test_parse succeeded.\n");
-    test_invalid_ids();
+    test_invalid_ids_part1();
+    test_invalid_ids_part2();
     printf("test_invalid_ids succeeded.\n");
     FILE* file = fopen("input.txt", "r");
     if (file == NULL) {

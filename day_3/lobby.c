@@ -166,7 +166,8 @@ void graph_calculate_max(graph_t* graph, int max_digits) {
 // }
 
 void test_graph() {
-    const char* str = "123456789";
+    // const char* str = "123456789";
+    const char* str = "1234";
     int len = strlen(str);
     graph_t* graph = graph_create(len);
     for (size_t i = 0; i < len; i++) {

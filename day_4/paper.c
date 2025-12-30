@@ -51,6 +51,10 @@ void grid_destroy(grid_t* grid) {
     grid->n = 0;
 }
 
+size_t grid_len(grid_t* grid) {
+    return grid->n;
+}
+
 grid_node_t* grid_add_node(grid_t* grid, int val) {
     if (grid->n >= grid->cap) {
         size_t new_cap = grid->cap * 2;
@@ -72,27 +76,132 @@ void grid_node_add_adj(grid_node_t* node, grid_node_t* adj) {
         node->adj = (grid_node_t**)realloc(node->adj, new_cap * sizeof(grid_node_t*));
         node->cap = new_cap;
     }
-
     node->adj[node->n++] = adj;
 }
 
+
+void grid_node_set_flags(grid_node_t* node, int flags) {
+    node->val |= flags;
+}
+
+void grid_node_unset_flags(grid_node_t* node, int flags) {
+    node->val &= !flags;
+}
+
 void grid_node_set_accessible(grid_node_t* node) {
-    node->val |= NODE_ACCESSIBLE;
+    grid_node_set_flags(node, NODE_ACCESSIBLE);
 }
 
 bool grid_node_has_flags(grid_node_t* node, int flags) {
-    return node->val & flags;
+    return (node->val & flags) == flags;
 }
 
 bool grid_node_is_accessible(grid_node_t* node) {
-    return node->val & NODE_ACCESSIBLE;
+    return grid_node_has_flags(node, NODE_ACCESSIBLE);
 }
 
 bool grid_node_has_paper(grid_node_t* node) {
-    return node->val & NODE_PAPER;
+    return grid_node_has_flags(node, NODE_PAPER);
+}
+
+void test_grid() {
+    size_t len = 9;
+    grid_t* grid = grid_create(3, len);
+    for (size_t i = 0; i < len; i++) {
+        grid_add_node(grid, NODE_PAPER);
+    }
+    assert(grid->n == len);
+    assert(grid_node_has_flags(grid->nodes, NODE_PAPER));
+    grid_node_set_accessible(grid->nodes);
+    assert(grid_node_has_flags(grid->nodes, NODE_ACCESSIBLE));
+    assert(grid_node_has_flags(grid->nodes, NODE_ACCESSIBLE | NODE_PAPER));
+    assert(!grid_node_has_flags(grid->nodes + 1, NODE_ACCESSIBLE));
+    assert(!grid_node_has_flags(grid->nodes + 1, NODE_ACCESSIBLE | NODE_PAPER));
+    grid_node_unset_flags(grid->nodes, NODE_ACCESSIBLE);
+    assert(!grid_node_has_flags(grid->nodes, NODE_ACCESSIBLE));
+
+    printf("test_grid passed.\n");
+}
+
+void execute_part1(grid_t* grid) {
+    for (size_t idx = 0; idx < grid->n; idx++) {
+        int row = idx / grid->stride;
+        int col = idx % grid->stride;
+
+        grid_node_t* node = &grid->nodes[idx];
+        int adj_has_paper = 0;
+        for (int i = row - 1; i <= row + 1; i++) {
+            for (int j = col - 1; j <= col + 1; j++) {
+                if (i < 0 || j < 0) continue;
+
+                size_t index = (i * grid->stride) + j;
+                if (index > grid->n - 1 || index == idx) continue;
+                
+                grid_node_t* adj = &grid->nodes[index];
+                if (grid_node_has_paper(adj)) {
+                    adj_has_paper += 1;
+                }
+            }
+        }
+
+        if (adj_has_paper < 4) {
+            grid_node_set_accessible(node);
+        }
+    }
+
+    int num_accessible = 0;
+    for (size_t i = 0; i < grid->n; i++) {
+        if (grid_node_has_flags(grid->nodes + i, NODE_PAPER | NODE_ACCESSIBLE))
+            num_accessible += 1;
+    }
+    printf("Part 1 answer: %i\n", num_accessible);
+}
+
+void execute_part2(grid_t* grid) {
+    int total_changed = 0;
+    int num_changed = 0xFF; // some default?
+                            //
+    while (num_changed > 0) {
+        num_changed = 0;
+        for (size_t node_idx = 0; node_idx < grid_len(grid); node_idx++) {
+            int row = node_idx / grid->stride;
+            int col = node_idx % grid->stride;
+
+            grid_node_t* node = &grid->nodes[node_idx];
+            int adj_has_paper = 0;
+
+            for (int i = row - 1; i <= row + 1; i++) {
+                for (int j = col - 1; j <= col + 1; j++) {
+                    if (i < 0 || j < 0) continue;
+
+                    size_t index = (i * grid->stride) + j;
+                    if (index > grid->n - 1 || index == node_idx) continue;
+
+                    grid_node_t* adj = &grid->nodes[index];
+                    if (grid_node_has_paper(adj)) {
+                        adj_has_paper += 1;
+                    }
+                }
+            }
+
+            if (adj_has_paper < 4) {
+                grid_node_set_accessible(node);
+            }
+        }
+
+        for (size_t i = 0; i < grid->n; i++) {
+            if (grid_node_has_flags(grid->nodes + i, NODE_PAPER | NODE_ACCESSIBLE)) {
+                grid_node_unset_flags(grid->nodes + i, NODE_PAPER);
+                num_changed++;
+            }
+        }
+        total_changed += num_changed;
+        printf("%i (%i).\n", num_changed, total_changed);
+    }
 }
 
 int main() {
+    test_grid();
     FILE* file = fopen("input.txt", "r");
     if (file == NULL) {
         printf("FAILED TO OPEN INPUT FILE.\n");
@@ -113,44 +222,7 @@ int main() {
         }
     }
 
-    // @TODO: Populate adjacency list for each node.
-    // 0 1 2 3 4
-    // 5 6 7 8 9
-    for (size_t idx = 0; idx < grid->n; idx++) {
-        int row = idx / grid->stride;
-        int col = idx % grid->stride;
-
-        grid_node_t* node = &grid->nodes[idx];
-        int adj_has_paper = 0;
-        int adj_count = 0;
-        for (int i = row - 1; i <= row + 1; i++) {
-            for (int j = col - 1; j <= col + 1; j++) {
-                if (i < 0 || j < 0) continue;
-
-                size_t index = (i * grid->stride) + j;
-                if (index > grid->n - 1 || index == idx) continue;
-                adj_count += 1;
-                assert(adj_count <= 8);
-                
-                grid_node_t* adj = &grid->nodes[index];
-                if (grid_node_has_paper(adj)) {
-                    adj_has_paper += 1;
-                }
-            }
-        }
-
-        if (adj_has_paper < 4) {
-            grid_node_set_accessible(node);
-        }
-    }
-
-    int num_accessible = 0;
-    for (size_t i = 0; i < grid->n; i++) {
-        if (grid_node_has_paper(grid->nodes + i) && grid_node_is_accessible(grid->nodes + i))
-        // if (grid_node_has_flags(grid->nodes + i, NODE_PAPER | NODE_ACCESSIBLE))
-            num_accessible += 1;
-    }
-    printf("Part 1 answer: %i\n", num_accessible);
-
+    execute_part1(grid);
+    execute_part2(grid);
     grid_destroy(grid);
 }

@@ -17,6 +17,10 @@ bool range_contains(range_t* range, size_t n) {
     return false;
 }
 
+size_t range_count(range_t* range) {
+    return range->end - range->start;
+}
+
 typedef struct {
     range_t* ptr;
     size_t cap;
@@ -42,6 +46,14 @@ range_t* range_array_add_range(range_array_t* arr, size_t start, size_t end) {
     range->start   = start;
     range->end     = end;
     return range;
+}
+
+typedef struct {
+    range_array_t* arr;
+} fancy_ranges_t;
+
+void fancy_add_range(fancy_ranges_t* fancy, range_t* range) {
+    // TODO: ADD RANGES AND ITERATVELY ADJUST FOR OVERLAP.
 }
 
 int find_char(const char* buf, char c) {
@@ -102,4 +114,13 @@ int main() {
     }
 
     printf("Part 1: %zu\n", fresh);
+
+    size_t num_fresh_ids = 0;
+    fancy_ranges_t fancy;
+    fancy.arr = range_array_create(range_array->len);
+    for (int i = 0; i < range_array->len; i++) {
+        range_t* range = &range_array->ptr[i];
+        fancy_add_range(&fancy, range);
+    }
+    printf("Part 2: %zu\n", num_fresh_ids);
 }

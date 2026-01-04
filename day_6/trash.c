@@ -44,6 +44,14 @@ void column_add_value(column_t* col, size_t val) {
     col->nums[col->len++] = val;
 }
 
+void column_add_digit(column_t* col, size_t alignment, int digit) {
+    // printf("adding %i at alignment %zu\n", digit, alignment);
+    if (col->len < alignment + 1) {
+        col->len = alignment + 1;
+    }
+    col->nums[alignment] = col->nums[alignment] * 10 + digit;
+}
+
 size_t column_calculate(column_t* col) {
     switch (col->op) {
         case OP_ADD: 
@@ -119,7 +127,7 @@ size_t table_calculate(table_t* table) {
     return accum;
 }
 
-table_t* read_file_into_table(const char* filename) {
+table_t* part1_read_file_into_table(const char* filename) {
     FILE* file = fopen(filename, "r");
     if (file == NULL) {
         printf("FAILED TO READ INPUT FILE: %s\n", filename);
@@ -149,6 +157,7 @@ table_t* read_file_into_table(const char* filename) {
             // 2) initialize the table
             table = table_create(n_cols);
         }
+
 
         size_t val = 0;
         size_t col = 0;
@@ -197,20 +206,106 @@ void table_check_cols(table_t* table) {
 }
 
 void part1() {
-    table_t* table = read_file_into_table("sample.txt");
+    table_t* table = part1_read_file_into_table("sample.txt");
     table_check_cols(table);
     assert(table_calculate(table) == 4277556);
     table_free(table);
     table = NULL;
     printf("part 1 sample case passed.\n");
 
-    table = read_file_into_table("input.txt");
+    table = part1_read_file_into_table("input.txt");
     table_check_cols(table);
     size_t ans = table_calculate(table);
     // 14379972759 is too low
     printf("Part 1 result: %zu\n", ans);
 }
 
+table_t* part2_read_file_into_table(const char* filename) {
+    FILE* file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("FAILED TO READ INPUT FILE: %s\n", filename);
+        exit(1);
+    }
+
+    // separator column is aligned immediately left
+    // of the operator char
+    char buf_operators[4096] = {0};
+    table_t* table = NULL;
+    while (fgets(buf_operators, sizeof(buf_operators), file) != NULL) {
+        if (table == NULL) {
+            // 1) read the buffer to get the number of columns;
+            size_t current = 0;
+            char* c = buf_operators;
+            size_t n_cols = 0;
+            while (*c != '\0' && *c != 0) {
+                if (isspace(*c)) {
+                    // add this number to the next column if > 0
+                    if (current > 0)
+                        n_cols++;
+                    current = 0;
+                } else if (isdigit(*c)) {
+                    int digit = *c - '0';
+                    current = current * 10 + digit;
+                }
+                c++;
+            }
+            // 2) initialize the table
+            table = table_create(n_cols);
+        }
+    }
+    fclose(file);
+    for (int k = 0; k < table->n_cols; k++) {
+        column_reset(table->columns + k);
+    }
+
+    file = fopen(filename, "r");
+    if (file == NULL) {
+        printf("FAILED TO READ INPUT FILE: %s\n", filename);
+        exit(1);
+    }
+    char buf[4096] = {0};
+    while (fgets(buf, sizeof(buf), file) != NULL) {
+        size_t column_major = -1;
+        size_t column_minor = 0;
+        for (size_t i = 0; i < strlen(buf); i++) {
+            char c = buf[i];
+            if (!isspace(buf_operators[i])) {
+                // printf("Alignment on %zu\n", i);
+                column_major++;
+                column_minor = 0;
+                switch (buf_operators[i]) {
+                    case '+':
+                        table_column_set_op(table, column_major, OP_ADD);
+                        break;
+                    case '*':
+                        table_column_set_op(table, column_major, OP_MUL);
+                        break;
+                    default:
+                        printf("ERROR: UNSUPPORTED OP TOKEN: '%c'\n", c);
+                        assert(false);
+                }
+            }
+
+            if (isdigit(c)) {
+                column_t* col = &table->columns[column_major];
+                column_add_digit(col, column_minor, c - '0');
+            }
+            column_minor++;
+        }
+    }
+    return table;
+}
+void part2() {
+    table_t* table = part2_read_file_into_table("sample.txt");
+    assert(table_calculate(table) == 3263827);
+    printf("part 2 sample passed.\n");
+    table_free(table);
+    table = NULL;
+    table = part2_read_file_into_table("input.txt");
+    printf("part 2 result: %zu\n", table_calculate(table));
+}
+
 int main() {
     part1();
+    part2();
 }

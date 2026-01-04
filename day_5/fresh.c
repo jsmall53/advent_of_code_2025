@@ -5,7 +5,6 @@
 #include <assert.h>
 #include <string.h>
 #include <ctype.h>
-#include <math.h>
 
 typedef struct {
     size_t start;
@@ -19,8 +18,7 @@ bool range_contains(range_t* range, size_t n) {
 }
 
 size_t range_count(range_t* range) {
-    if (range->start == 0 && range->end == 0)
-        return 0;
+    assert(range->end - range->start >= 0);
     return range->end - range->start + 1;
 }
 
@@ -33,103 +31,12 @@ bool range_overlap(range_t* range1, range_t* range2) {
     return (a1 <= b2) && (b1 <= a2);
 }
 
-// bool range_overlap_old(range_t* range1, range_t* range2) {
-//     range_t* smaller, *larger;
-//     if (range1->start < range2->start) {
-//         smaller = range1;
-//         larger = range2;
-//     } else {
-//         smaller = range2;
-//         larger = range1;
-//     }
-//
-//     // equal range starts
-//     // 1-3
-//     // 1-4
-//     if (smaller->start == larger->start || smaller->end == larger->end) {
-//         return true;
-//     }
-//
-//     // no overlap
-//     if (smaller->end < larger->start && smaller->end < range2->end) {
-//         return false;
-//     }
-//
-//     // 34-50
-//     // 35-100
-//     if (smaller->end > larger->start && smaller->end < larger->end) {
-//         return true;
-//     }
-//
-//     // Engulfing ranges, one fits inside the other
-//     // 34-50
-//     // 35-49
-//     if (smaller->end >= larger->start && smaller->end > larger->end) { 
-//         return true;
-//     }
-//
-//     return false;
-// }
-
 range_t range_consolidate(range_t* range1, range_t* range2) {
     return (range_t) {
         .start = range1->start < range2->start ? range1->start : range2->start,
         .end   = range1->end > range2->end ? range1->end : range2->end,
     };
 }
-
-// range_t range_consolidate_old(range_t* range1, range_t* range2) {
-//     range_t* smaller, *larger;
-//     if (range1->start < range2->start) {
-//         smaller = range1;
-//         larger = range2;
-//     } else {
-//         smaller = range2;
-//         larger = range1;
-//     }
-//
-//     // equal range starts
-//     if (smaller->start == larger->start) {
-//         range_t range;
-//         range.start = smaller->start;
-//         range.end = smaller->end >= larger->end ? smaller->end : larger->end;
-//         return range;
-//     }
-//
-//     // equal range ends 
-//     if (smaller->end == larger->end) {
-//         range_t range;
-//         range.start = smaller->start;
-//         range.end = smaller->end;
-//         return range;
-//     }
-//
-//     // no overlap
-//     if (smaller->end < larger->start && smaller->end < range2->end) {
-//         return (range_t){0};
-//     }
-//
-//     // 34-50
-//     // 35-100
-//     if (smaller->end > larger->start && smaller->end < larger->end) {
-//         return (range_t){
-//             .start = smaller->start,
-//             .end   = larger->end,
-//         };
-//     }
-//
-//     // Engulfing ranges, one fits inside the other
-//     // 34-50
-//     // 35-49
-//     if (smaller->end >= larger->start && smaller->end >= larger->end) { 
-//         return (range_t){
-//             .start = smaller->start,
-//             .end   = smaller->end,
-//         };
-//     }
-//
-//     return (range_t){0};
-// }
 
 void test_range() {
     range_t range1 = { .start = 1, .end = 7 };
@@ -196,6 +103,18 @@ void test_range() {
     range2.start = 2810323474576;
     range2.end   = 3723043099728;
     assert(range_overlap(&range1, &range2));
+
+    // 60627233829569-67301045866627
+    // 67014797628214-70234710680711
+    range1.start = 60627233829569;
+    range1.end   = 67301045866627;
+    range2.start = 67014797628214;
+    range2.end   = 70234710680711;
+    assert(range_overlap(&range1, &range2));
+    range_t other = range_consolidate(&range1, &range2);
+    assert(other.start == range1.start && other.end == range2.end);
+
+    assert(range_count(&(range_t){.start = 1, .end = 1}) == 1);
 
     printf("test_range passed.\n");
 }
@@ -296,8 +215,7 @@ range_node_t* bst_node_insert_recursive(range_node_t* node, range_node_t* new) {
     }
 
     if (overlap) {
-        range_t new_range = range_consolidate(&node->range, &new->range);
-        node->range = new_range;
+        node->range = range_consolidate(&node->range, &new->range);
         return node;
     }
     printf("Something weird:\nnode: %zu-%zu\nnew: %zu-%zu\n", 
@@ -306,68 +224,111 @@ range_node_t* bst_node_insert_recursive(range_node_t* node, range_node_t* new) {
     return NULL;
 }
 
+range_node_t* bst_node_delete(range_node_t* node) {
+    if (node == NULL)
+        return NULL;
+
+    if (node->left == NULL) {
+        return node->right;
+    }
+
+    if (node->right == NULL) {
+        return node->left;
+    }
+
+    range_node_t* successor = node->right;
+    while (successor->left) {
+        successor = successor->left;
+    }
+    node->range = successor->range;
+    bst_node_delete(successor);
+    return node;
+}
+
 void bst_node_prune(range_node_t* node) {
     if (node == NULL)
         return;
 
-    bst_node_prune(node->left);
-    bst_node_prune(node->right); // is this correct??
-                                 //
-    bool debug = true;
-    // if (node->range.start == 1151221132517) {
-    // if (node->range.start == 447008091749) {
-    //     printf("FOUND DEBUG CASE\n");
-    //     bst_debug_print(node);
-    //     printf("\n");
-    //     debug = true;
-    // }
-
     if (node->left != NULL && range_overlap(&node->range, &node->left->range)) {
-        range_t new_range = range_consolidate(&node->range, &node->left->range);
-        node->range = new_range;
-        range_node_t* tmp_right = node->left->right;
-        range_node_t* tmp_left = node->left->left;
-        if (tmp_right != NULL) {
-            node->left = tmp_right;
-            tmp_right->left = tmp_left;
+        node->range = range_consolidate(&node->range, &node->left->range);
+        range_node_t* old_left = node->left;
+        if (old_left->left && !old_left->right) {
+            node->left = old_left->left;
+        } else if(!old_left->left && old_left->right) {
+            node->left = old_left->right;
+        } else if (!old_left->left && !old_left->right) {
+            node->left = NULL;
         } else {
-            node->left = tmp_left;
+            assert(false);
         }
+        // range_node_t* tmp_right = node->left->right;
+        // range_node_t* tmp_left = node->left->left;
+        // if (tmp_right != NULL) {
+        //     node->left = tmp_right;
+        //     tmp_right->left = tmp_left;
+        // } else {
+        //     node->left = tmp_left;
+        // }
+        // if (old_left->right != NULL) {
+        //     node->left = old_left->right;
+        //     node->left->left = old_left->left;
+        // } else {
+        //     node->left = old_left->left;
+        // }
     }
 
     if (node->right != NULL && range_overlap(&node->range, &node->right->range)) {
-        range_t new_range = range_consolidate(&node->range, &node->right->range);
-        node->range = new_range;
-        range_node_t* tmp_right = node->right->right;
-        range_node_t* tmp_left  = node->right->left;
-        if (tmp_right != NULL) {
-            node->right = tmp_right;
-            tmp_right->left = tmp_left;
+        node->range = range_consolidate(&node->range, &node->right->range);
+        range_node_t* old_right = node->right;
+        if (old_right->left && !old_right->right) 
+            node->right = old_right->left;
+        else if (!old_right->left && old_right->right)
+            node->right = old_right->right;
+        else if (!old_right->left && !old_right->right) {
+            node->right = NULL;
         } else {
-            node->right = tmp_left;
+            assert(false);
         }
-    }
-}
-
-void bst_check_tree(range_node_t* node) {
-    if (node == NULL)
-        return;
-
-    bst_check_tree(node->left);
-    if (node->left != NULL) {
-        assert(node->range.start > node->left->range.end);
-        // assert(node->range.start > node->left->range.start);
-    }
-
-    if (node->right != NULL) {
-        assert(node->range.end < node->right->range.start);
-        // if (node->range.start >= node->right->range.start) {
-        //     printf("CHECK TREE FAILED:\nnode: %zu-%zu\nright: %zu-%zu\n", 
-        //             node->range.start, node->range.end, node->right->range.start, node->right->range.end);
-        //     assert(false);
+        // range_node_t* tmp_right = node->right->right;
+        // range_node_t* tmp_left  = node->right->left;
+        // if (tmp_left != NULL) {
+        //     node->right = tmp_left;
+        //     tmp_left->right = tmp_right;
+        // } else {
+        //     node->right = tmp_left;
+        // }
+        // if (old_right->left != NULL) {
+        //     node->right = old_right->left;
+        //     node->right->right = old_right->right;
+        // } else {
+        //     node->right = old_right->left;
         // }
     }
-    bst_check_tree(node->right);
+
+    bst_node_prune(node->left);
+    bst_node_prune(node->right);
+}
+
+bool bst_check_tree(range_node_t* node) {
+    if (node == NULL)
+        return true;
+
+    bool ret = true;
+    ret = bst_check_tree(node->left);
+    ret = bst_check_tree(node->right);
+    if (node->range.start > node->range.end)
+        ret = false;
+
+    if (node->left != NULL && node->range.start <= node->left->range.end) {
+        // assert(node->range.start > node->left->range.end);
+        ret = false;
+    }
+
+    if (node->right != NULL && node->range.end >= node->right->range.start) {
+        // assert(node->range.end < node->right->range.start);
+        ret = false;
+    }
+    return ret;
 }
 
 range_node_t* bst_node_insert(bst_t* bst, range_t range) {
@@ -391,14 +352,13 @@ void bst_debug_print(range_node_t* node) {
     bst_debug_print(node->right);
 }
 
-size_t bst_count_ranges(range_node_t* node) {
+size_t bst_count_ids(range_node_t* node) {
     if (node == NULL)
         return 0;
-    size_t total = 0;
-    total += bst_count_ranges(node->left);
-    total += range_count(&node->range);
-    total += bst_count_ranges(node->right);
-    return total;
+    size_t left_count = bst_count_ids(node->left);
+    size_t right_count = bst_count_ids(node->right);
+    size_t node_count = range_count(&node->range);
+    return left_count + node_count + right_count;
 }
 
 void test_bst() {
@@ -415,8 +375,9 @@ void test_bst() {
     bst_check_tree(bst->root);
     bst_node_insert(bst, (range_t){ .start = 12, .end = 18 } );
     bst_check_tree(bst->root);
+
     assert(bst->root->right->range.start == 10 && bst->root->right->range.end == 20);
-    assert(bst_count_ranges(bst->root) == 14);
+    assert(bst_count_ids(bst->root) == 14);
 
 
     bst_node_insert(bst, (range_t){
@@ -432,8 +393,151 @@ void test_bst() {
     bst_node_insert(bst, (range_t){ 
             .start = 12345,
             .end   = 15001 });
+
+    // 60627233829569-67301045866627
+    // 67014797628214-70234710680711
+    // These aren't merging in the input2.txt case
+    bst_node_insert(bst, (range_t){ 
+            .start = 60627233829569,
+            .end   = 67301045866627 });
+    bst_node_insert(bst, (range_t){ 
+            .start = 67014797628214,
+            .end   = 70234710680711 });
     bst_check_tree(bst->root);
+    bst_debug_print(bst->root);
     printf("test_bst passed.\n");
+    assert(false);
+}
+
+typedef struct list_node list_node_t;
+typedef struct list_node {
+    range_t range;
+    list_node_t* next;
+} list_node_t;
+
+typedef struct {
+    list_node_t* ranges;
+    size_t len;
+    size_t cap;
+    list_node_t* head;
+} range_list_t;
+
+range_list_t* range_list_create(size_t cap) {
+    range_list_t* list = (range_list_t*)malloc(sizeof(range_list_t));
+    list->len = 0;
+    list->head = NULL;
+    list->ranges = (list_node_t*)malloc(sizeof(list_node_t) * cap);
+    list->cap = cap;
+    return list;
+}
+
+void range_list_free(range_list_t* list) {
+    free(list->ranges);
+    list->ranges = NULL;
+    list->head = NULL;
+    list->cap = 0;
+    list->len = 0;
+    free(list);
+}
+
+list_node_t* range_list_node_create(range_list_t* list, range_t range) {
+    if (list->len >= list->cap) {
+        size_t new_cap = list->cap * 2;
+        list->ranges = (list_node_t*)realloc(list->ranges, sizeof(list_node_t) * new_cap);
+        list->cap = new_cap;
+    }
+
+    list_node_t* node = &list->ranges[list->len++];
+    node->range = range;
+    node->next  = NULL;
+    return node;
+}
+
+list_node_t* range_list_push_sorted(range_list_t* list, range_t range) {
+    if (list->head == NULL) {
+        list->head = range_list_node_create(list, range);
+        return list->head;
+    }
+    // 3 -> 4 -> 7;
+    // insert 5.
+    // 1) node = 3, prev = NULL
+    // 2) node = 4, prev = 3
+    // 3) node = 7, prev = 4 // break here and insert between prev and node.
+    // check for merges.
+    list_node_t* node = list->head;
+    list_node_t* prev = NULL;
+
+    while (node != NULL) {
+        if (range.start < node->range.start) {
+            break;
+        }
+        prev = node;
+        node = node->next;
+    }
+
+    list_node_t* new_node = range_list_node_create(list, range);
+    if (prev == NULL) {
+        new_node->next = node;
+        list->head = new_node;
+    } else {
+        new_node->next = prev->next;
+        prev->next = new_node;
+    }
+    return new_node;
+}
+
+int range_list_merge(range_list_t* list) {
+    list_node_t* node = list->head;
+    list_node_t* next = node->next;
+    int merged = 0;
+    while (next != NULL) {
+        if (range_overlap(&node->range, &next->range)) {
+            merged++;
+            node->range = range_consolidate(&node->range, &next->range);
+            node->next  = node->next->next;
+            next = node->next;
+            continue; // if we merge this iter, don't increment node
+        }
+        node = node->next;
+        next = node->next;
+    }
+    return merged;
+}
+
+void range_list_debug_print(range_list_t* list) {
+    list_node_t* node = list->head;
+    while(node != NULL) {
+        printf("%zu-%zu\n", node->range.start, node->range.end);
+        node = node->next;
+    }
+    printf("\n");
+}
+
+size_t range_list_count_ids(range_list_t* list) {
+    size_t accum = 0;
+    list_node_t* node = list->head;
+    while (node != NULL) {
+        accum += range_count(&node->range);
+        node = node->next;
+    }
+    return accum;
+}
+
+void test_range_list() {
+    // THIS ISN'T WORKING, INSERTION IS BROKEN
+    range_list_t* list = range_list_create(8);
+    range_list_push_sorted(list, (range_t){.start = 3, .end = 5});
+    range_list_push_sorted(list, (range_t){.start = 10, .end = 14});
+    range_list_push_sorted(list, (range_t){.start = 16, .end = 20});
+    range_list_push_sorted(list, (range_t){.start = 12, .end = 18});
+
+    range_list_push_sorted(list, (range_t){.start = 111, .end = 112});
+    range_list_push_sorted(list, (range_t){.start = 113, .end = 114});
+    range_list_push_sorted(list, (range_t){.start = 109, .end = 110});
+
+    assert(range_list_merge(list) == 2);
+    range_list_debug_print(list);
+    printf("test_range_list passed.\n");
 }
 
 int find_char(const char* buf, char c) {
@@ -459,9 +563,11 @@ size_t string_to_id(const char* buf, int start, int end) {
 
 int main() {
     test_range();
-    test_bst();
-
-    FILE* file = fopen("input.txt", "r");
+    // test_bst();
+    test_range_list();
+    // exit(1);
+    const char* input_name = "input.txt";
+    FILE* file = fopen(input_name, "r");
     if (file == NULL) {
         printf("FAILED TO OPEN INPUT FILE.\n");
         exit(-1);
@@ -498,7 +604,7 @@ int main() {
     printf("Part 1: %zu\n", fresh);
     fclose(file);
 
-    file = fopen("input.txt", "r");
+    file = fopen(input_name, "r");
     if (file == NULL) {
         printf("FAILED TO OPEN INPUT FILE.\n");
         exit(-1);
@@ -519,19 +625,24 @@ int main() {
     assert(arr->len > 0);
 
     size_t num_fresh_ids = 0;
-    bst_t* bst = bst_create(arr->len);
+    range_list_t* list = range_list_create(arr->len);
     for (size_t i = 0; i < arr->len; i++) {
-        bst_node_insert(bst, arr->ptr[i]);
-        bst_check_tree(bst->root);
+        range_list_push_sorted(list, arr->ptr[i]);
+        // range_list_debug_print(list);
     }
-    bst_node_prune(bst->root);
-    // printf("\nFINAL TREE:\n\n");
-    // bst_debug_print(bst->root);
+    range_list_merge(list);
+    printf("\nFINAL LIST (%zu):\n\n", list->len);
+    range_list_debug_print(list);
+    num_fresh_ids = range_list_count_ids(list);
 
     // 118828288127539 is too low 118_828_288_127_539
     // 118828288127590 is too low
     // 344300757540305 is not right, feels close...
     // 333994202581208 is not right, feels closer...
-    num_fresh_ids = bst_count_ranges(bst->root);
+    // num_fresh_ids = bst_count_ids(list->root);
+    // for input2.txt, answer is 344486348901788
+    // (i am getting 346228877525236) need to find the bug...
+
     printf("Part 2: %zu\n", num_fresh_ids);
+    fclose(file);
 }

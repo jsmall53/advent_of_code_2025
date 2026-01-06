@@ -207,7 +207,7 @@ typedef struct graph {
     size_t capacity;
 } graph_t;
 
-graph_t* graph_create(size_t max_nodes) {
+graph_t* connection_array_create(size_t max_nodes) {
     graph_t* graph = (graph_t*)malloc(sizeof(graph_t));
     graph->nodes = (graph_node_t*)malloc(sizeof(graph_node_t) * max_nodes);
     graph->capacity = max_nodes;
@@ -299,7 +299,7 @@ void test_graph() {
     // const char* str = "123456789";
     const char* str = "1234";
     int len = strlen(str);
-    graph_t* graph = graph_create(len);
+    graph_t* graph = connection_array_create(len);
     graph_init(graph, str);
     assert(graph->len == len);
 
@@ -397,7 +397,7 @@ int main() {
     while (fgets(buf, sizeof(buf), file) != NULL) {
         printf("calculating: %s", buf);
         int len = strlen((const char*)buf);
-        graph_t* graph = graph_create(len);
+        graph_t* graph = connection_array_create(len);
         graph_init(graph, buf);
         uint64_t max = graph_calculate_max(graph, 6);
         total_joltage += max;

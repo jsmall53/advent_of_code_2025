@@ -197,6 +197,7 @@ typedef struct graph graph_t;
 
 typedef struct graph_node {
     const char* c;
+    size_t id;
     graph_node_t** edges;
     size_t num_edges;
 } graph_node_t;
@@ -219,6 +220,7 @@ graph_node_t* graph_add_node(graph_t* graph, const char* ptr) {
     graph->nodes[graph->len].c = ptr;
     graph->nodes[graph->len].edges = (graph_node_t**)malloc(sizeof(graph_node_t*) * graph->capacity);
     graph->nodes[graph->len].num_edges = 0;
+    graph->nodes[graph->len].id = graph->len;
     return &graph->nodes[graph->len++];
 }
 
@@ -249,48 +251,80 @@ char graph_node_value(graph_node_t* node) {
     return (*node->c);
 }
 
-void graph_dfs(graph_node_t* node, size_t depth, size_t max_depth, string_t* buffer) {
-    if (node == NULL) {
-        return; // return what?
-    }
+typedef struct {
+    size_t** buf;
+    size_t   max_depth;
+    size_t   n;
+} memo_table_t;
 
-    // printf("searching %x\n", node);
-    if (node->num_edges == 0 || depth == max_depth) {
-        string_append_char(buffer, graph_node_value(node));
-        return;
+void init_memo_table(memo_table_t* table, size_t max_depth, size_t num_nodes) {
+    table->max_depth = max_depth;
+    table->n = num_nodes;
+    table->buf = (size_t**)malloc(sizeof(size_t*) * max_depth);
+    for (size_t i = 0; i < max_depth; i++) {
+        table->buf[i] = (size_t*)malloc(sizeof(size_t) * num_nodes);
+        memset(table->buf[i], 0, num_nodes * sizeof(size_t));
     }
-
-    uint64_t max_val = 0;
-    string_t* max_buf = buffer;
-    char node_val = graph_node_value(node);
-    for (size_t i = 0; i < node->num_edges; i++) {
-        string_t* buf_cpy = string_copy(buffer);
-        graph_dfs(node->edges[i], depth + 1, max_depth, buf_cpy);
-        string_append_char(buf_cpy, node_val);
-        uint64_t int_val = string_atoi(buf_cpy, true);
-        if (int_val > max_val) {
-            max_val = int_val;
-            max_buf = buf_cpy;
-        }
-        // val = node_val * 10 + val;
-        // printf("%zu\n", val);
-        // if (val > max_val)
-        //     max_val = val;
-    }
-    memcpy(buffer, max_buf, sizeof(string_t));
-    return;
 }
 
-// Use DFS to generate all possible n digit values from the graph.
+void memo_table_put_value(memo_table_t* table, size_t depth, size_t node_id, size_t value) {
+    table->buf[depth][node_id] = value;
+}
+
+size_t memo_table_get_value(memo_table_t* table, size_t depth, size_t node_id) {
+    return table->buf[depth][node_id];
+}
+
+void memo_table_dbg(memo_table_t* table) {
+    printf("==============================\n");
+    for (size_t i = 0; i < table->max_depth; i++) {
+        printf("%i | ", i + 1);
+        for (size_t j = 0; j < table->n; j++) {
+            printf("%zu ", table->buf[i][j]);
+        }
+        printf("\n");
+    }
+    printf("==============================\n");
+}
+
+// need a memo table for each node that tracks max value for each current depth
+uint64_t graph_max_from_node(graph_node_t* node, int n_digits, int max_digits, uint64_t value, memo_table_t* table) {
+    if (n_digits > max_digits) {
+        printf("over max depth for node '%c' at depth %i, returning current value %zu\n", *node->c, n_digits, value);
+        return value;
+    }
+
+    size_t memo_value = memo_table_get_value(table, n_digits, node->id);
+    if (memo_value != 0) {
+        printf("max value from '%c' at depth %i = %zu\n", *node->c, n_digits, memo_value);
+        return memo_value;
+    }
+
+    int node_value = *(node->c) - '0';
+    value = value * 10 + node_value;
+
+    uint64_t max_value = value;
+    for (int i = 0; i < node->num_edges; i++) {
+        uint64_t edge_val = graph_max_from_node(node->edges[i], n_digits + 1, max_digits, value, table);
+        printf("edge value: %zu\n", edge_val);
+        if (edge_val > max_value) {
+            max_value = edge_val;
+        }
+    }
+    memo_table_put_value(table, n_digits, node->id, max_value);
+    return max_value;
+}
+
 uint64_t graph_calculate_max(graph_t* graph, int max_digits) {
     uint64_t max = 0;
+    memo_table_t memo;
+    init_memo_table(&memo, max_digits, graph->len);
     for (int i = 0; i < graph->len; i++) {
-        string_t* buf = string_create(max_digits);
-        graph_dfs(graph->nodes + i, 0, max_digits - 1, buf);
-        uint64_t val = string_atoi(buf, true);
+        uint64_t val = graph_max_from_node(graph->nodes + i, 0, max_digits - 1, 0, &memo);
         if (val > max) {
             max = val;
         }
+        memo_table_dbg(&memo);
     }
     return max;
 }
@@ -311,8 +345,8 @@ void test_graph() {
     }
 
     uint64_t max = graph_calculate_max(graph, 2);
-    assert(max == 34);
     printf("MAX VALUE: %zu\n", max);
+    assert(max == 34);
 
 
     // for (size_t i = 0; i < len; i++) {
@@ -354,6 +388,7 @@ void test_bank() {
     digit_table_t* table = digit_table_create();
     printf("%d\n", get_max_joltage("987654321111111", table));
     assert(get_max_joltage("987654321111111", table) == 98);
+    assert(get_max_joltage("987654321111111", table) == 98);
     assert(get_max_joltage("811111111111119", table) == 89);
     assert(get_max_joltage("234234234234278", table) == 78);
     assert(get_max_joltage("818181911112111", table) == 92);
@@ -361,14 +396,56 @@ void test_bank() {
     printf("test_bank passed.\n");
 }
 
+size_t find_largest_n_digit_value(const char* string, int max_digits) {
+    size_t len = strlen(string);
+    char search_char = '9';
+    size_t value = 0;
+    size_t pos = 0;
+    while (max_digits > 0) {
+        bool found = false;
+        for (size_t k = pos; k < len - max_digits; k++) {
+            if (string[k] == search_char) {
+                value = value * 10 + search_char - '0';
+                pos = k + 1;
+                found = true;
+                search_char = '9';
+                max_digits--;
+                break;
+            }
+        }
+
+        if (!found) {
+            search_char--;
+        }
+    }
+    return value;
+}
+
+void test_find() {
+    assert(find_largest_n_digit_value("1234", 2) == 34);
+
+    assert(find_largest_n_digit_value("987654321111111", 2) == 98);
+    assert(find_largest_n_digit_value("987654321111111", 2) == 98);
+    assert(find_largest_n_digit_value("811111111111119", 2) == 89);
+    assert(find_largest_n_digit_value("234234234234278", 2) == 78);
+    assert(find_largest_n_digit_value("818181911112111", 2) == 92);
+
+    assert(find_largest_n_digit_value("987654321111111", 12) == 987654321111);
+    assert(find_largest_n_digit_value("234234234234278", 12) == 434234234278);
+    assert(find_largest_n_digit_value("811111111111119", 12) == 811111111119);
+    assert(find_largest_n_digit_value("123456789912344", 12) == 456789912344);
+    assert(find_largest_n_digit_value("123456789912344", 12) == 456789912344);
+    assert(find_largest_n_digit_value("1111111111119", 12) == 111111111119);
+    assert(find_largest_n_digit_value("818181911112111", 12) == 888911112111);
+}
 /*
  * Part 2 is likely a tree or DAG.
  * */
 int main() {
-    test_str();
-    test_table();
-    test_bank();
-    test_graph();
+    // test_str();
+    // test_table();
+    // test_bank();
+    // test_find();
     
     FILE* file = fopen("input.txt", "r");
     if (file == NULL) {
@@ -394,14 +471,13 @@ int main() {
     // }
 
     // PART 2
+    // 168647200616010 is too high.
+    uint64_t part2 = 0;
     while (fgets(buf, sizeof(buf), file) != NULL) {
-        printf("calculating: %s", buf);
-        int len = strlen((const char*)buf);
-        graph_t* graph = connection_array_create(len);
-        graph_init(graph, buf);
-        uint64_t max = graph_calculate_max(graph, 6);
-        total_joltage += max;
+        total_joltage += find_largest_n_digit_value(buf, 2);
+        part2 += find_largest_n_digit_value(buf, 12);
     }
-
-    printf("Total joltage: %zu\n", total_joltage);
+    printf("Part 1 Total joltage: %zu\n", total_joltage);
+    printf("Part 2 Total joltage: %zu\n", part2);
+    assert(total_joltage == 16993);
 }

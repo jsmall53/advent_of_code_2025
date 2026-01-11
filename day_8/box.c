@@ -36,6 +36,18 @@ static int circuit_ids[NUM_POINTS]; // id of 0 means no circuit, so circuit_id o
 static int n_pairs = 0;
 static pair_t pairs[NUM_PAIRS];
 
+void reset_state() {
+    n_circuits = 0;
+    memset(circuits, 0, sizeof(*circuits) * NUM_POINTS);
+    memset(circuit_ids, 0, sizeof(*circuit_ids) * NUM_POINTS);
+
+    n_pairs = 0;
+    memset(pairs, 0, sizeof(*pairs) * NUM_PAIRS);
+
+    n_points = 0;
+    memset(points, 0, sizeof(*points) * NUM_POINTS);
+}
+
 void circuit_init(circuit_t* circuit, size_t cap) {
     circuit->len = 0;
     circuit->cap = cap;
@@ -110,10 +122,8 @@ size_t euclidean_distance_squared(point_t* point1, point_t* point2) {
 }
 
 void init_points(const char* filename) {
-    memset(points, 0, sizeof(point_t) * NUM_POINTS);
     FILE* file = fopen(filename, "r");
     char buf[128];
-    n_points = 0;
     while (fgets(buf, sizeof(buf), file)) {
         points[n_points++] = point_parse(buf);
     }
@@ -121,8 +131,6 @@ void init_points(const char* filename) {
 }
 
 void init_pairs() {
-    memset(pairs, 0, sizeof(pair_t) * NUM_PAIRS);
-    n_pairs = 0;
     for (int i = 0; i < n_points - 1; i++) {
         for (int j = i + 1; j < n_points; j++) {
             if (i == j)
@@ -138,42 +146,100 @@ void init_pairs() {
     qsort(pairs, n_pairs, sizeof(pair_t), cmpdist);
 }
 
+void add_box_to_circuit(int circuit, int box) {
+    circuit_add_box(&circuits[circuit - 1], box);
+    circuit_ids[box] = circuit;
+    // printf("adding box %i into circuit %i\n", box, circuit);
+}
+
 void create_new_circuit(int box1, int box2) {
     circuit_t* circuit = &circuits[n_circuits++];
     // printf("create new circuit %i with boxes %i and %i\n", n_circuits, box1, box2);
     circuit_init(circuit, 50);
-    circuit_add_box(circuit, box1);
-    circuit_add_box(circuit, box2);
-    circuit_ids[box1] = n_circuits;
-    circuit_ids[box2] = n_circuits;
-}
-
-void add_box_to_circuit(int circuit, int box) {
-    circuit_add_box(&circuits[circuit - 1], box);
-    circuit_ids[box] = n_circuits;
-    // printf("adding box %i to circuit %i(%zu)\n", box, circuit, circuits[circuit-1].len);
+    add_box_to_circuit(n_circuits, box1);
+    add_box_to_circuit(n_circuits, box2);
+    // circuit_add_box(circuit, box1);
+    // circuit_ids[box1] = n_circuits;
+    // circuit_add_box(circuit, box2);
+    // circuit_ids[box2] = n_circuits;
+    assert(circuit->len == 2);
+    bool found_box1 = false;
+    bool found_box2 = false;
+    for (int i = 0; i < circuit->len; i++) {
+        int box = circuit->boxes[i];
+        if (box == box1) {
+            found_box1 = true;
+        } else if (box == box2) {
+            found_box2 = true;
+        }
+    }
+    assert(found_box1 && found_box2);
 }
 
 void merge_two_circuits(int id1, int id2) {
+    assert(id1 != id2);
     circuit_t* circuit1 = &circuits[id1 - 1];
     circuit_t* circuit2 = &circuits[id2 - 1];
     // printf("merging circuits %i(%zu) and %i(%zu)\n", id1, circuit1->len, id2, circuit2->len);
     size_t expected_len = circuit1->len + circuit2->len;
-    for (int i = 0; i < n_points; i++) {
-        if (circuit_ids[i] == id2) {
-            circuit_ids[i] = id1;
-        }
-    }
 
     for (int i = 0; i < circuit2->len; i++) {
         add_box_to_circuit(id1, circuit2->boxes[i]);
+        // int box = circuit2->boxes[i];
+        // circuit_add_box(circuit1, box);
+        // circuit_ids[box] = id1;
+        // printf("merging box %i into circuit %i\n", box, id1);
     }
+
     circuit_reset(circuit2);
     assert(circuit1->len == expected_len);
+    for (int i = 0; i < n_points; i++) {
+        if (circuit_ids[i] == id2) {
+            printf("invalid circuit id (%i) for box %i. Should be circuit %i\n", id2, i, id1);
+            assert(circuit_ids[i] != id2);
+        }
+    }
+}
+
+void circuits_debug_print() {
+    for (int i = 0; i < n_circuits; i++) {
+        circuit_t* circuit = &circuits[i];
+        printf("circuit %i (%zu): ", i + 1, circuit->len);
+        for (int k = 0; k < circuit->len; k++) {
+            printf("%i,", circuit->boxes[k]);
+        }
+        printf("\n");
+    }
+}
+
+void assert_circuit_accuracy() {
+    for (int i = 0; i < n_points; i++) {
+        int circuit_id = circuit_ids[i];
+        if (circuit_id == 0)
+            continue;
+        circuit_t* circuit = &circuits[circuit_id - 1];
+        assert(circuit != NULL);
+        if (circuit->len == 0) {
+            printf("circuit %i has len 0\n", circuit_id);
+            assert(circuit->len > 0);
+        }
+        bool found = false;
+        for (int k = 0; k < circuit->len; k++) {
+            if (circuit->boxes[k] == i) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            printf("\nbox %i has circuit_id %i but is not in the circuits list.\n", i, circuit_id);
+            // circuits_debug_print();
+            assert(false);
+        }
+    }
 }
 
 void connect_n_pairs(int n) {
-    // reset circuits
     for (int i = 0; i < n; i++) {
         const pair_t* pair = &pairs[i];
         const int id0 = circuit_ids[pair->ids[0]];
@@ -190,12 +256,7 @@ void connect_n_pairs(int n) {
     }
 }
 
-int part1(const char* filename, int connections) {
-    init_points(filename);
-    init_pairs();
-    connect_n_pairs(connections);
-
-    int circuit_size[NUM_POINTS] = {0};
+void calculate_circuit_sizes(int* circuit_size) {
     int count = 0;
     for (int i = 0; i < n_circuits; i++) {
         circuit_t* circuit = &circuits[i];
@@ -205,9 +266,17 @@ int part1(const char* filename, int connections) {
     }
     assert(count >= 3);
     qsort(circuit_size, count, sizeof(*circuit_size), cmpdesc);
-    // for (int i = 0; i < count && i < 10; i++) {
-    //     printf("%i\n", circuit_size[i]);
-    // }
+}
+
+int part1(const char* filename, int connections) {
+    reset_state();
+    init_points(filename);
+    init_pairs();
+    connect_n_pairs(connections);
+
+    int circuit_size[NUM_POINTS] = {0};
+    calculate_circuit_sizes(circuit_size);
+    assert_circuit_accuracy();
     return circuit_size[0] * circuit_size[1] * circuit_size[2];
 }
 
@@ -221,6 +290,7 @@ int main() {
     assert(sample_result == 40);
     int input_result = part1("input.txt", 1000);
     // 164696 is too high...
+    // 42784 is wrong too...
     printf("Part 1 input result: %i\n", input_result);
     part2();
 }

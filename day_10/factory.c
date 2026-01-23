@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <stdint.h>
+#include <limits.h>
 
 #define LIGHT_OFF_CHAR '.'
 #define LIGHT_OFF       0
@@ -14,6 +15,7 @@
 #define MAX_LIGHTS 10
 #define MAX_STATES (2 << MAX_LIGHTS)
 #define JOLTAGE_MAX 1000
+#define MAX_JOLTAGE_STATES (2 << 15)
 
 typedef struct {
     unsigned int value;
@@ -220,53 +222,6 @@ void parse(const char* filename) {
  * */
 #define MAX_PRESSES 512
 
-typedef struct {
-    size_t id;
-    unsigned int state[MAX_LIGHTS];
-    unsigned int next[MAX_BUTTONS][MAX_LIGHTS];
-} joltage_node_t;
-
-typedef struct {
-    joltage_node_t* nodes;
-    size_t cap;
-    size_t len;
-} node_list_t; 
-
-void node_list_init(node_list_t* list, size_t cap) {
-    list->len = 0;
-    list->cap = cap;
-    list->nodes = (joltage_node_t*)malloc(sizeof(joltage_node_t) * cap);
-}
-
-void node_list_free(node_list_t* list) {
-    free(list->nodes);
-    list->nodes = 0;
-    list->cap = 0;
-    list->len = 0;
-}
-
-int node_equal(joltage_node_t* node, unsigned int* state) {
-    for (int i = 0; i < MAX_LIGHTS; i++) {
-        if (node->state[i] != state[i])
-            return 0;
-    }
-    return 1;
-}
-
-joltage_node_t* node_list_push(node_list_t* list, unsigned int* state) {
-    if (list->len >= list->cap) {
-        size_t new_size = list->cap * 2;
-        list->nodes = (joltage_node_t*)realloc(list->nodes, sizeof(joltage_node_t) * new_size);
-        list->cap = new_size;
-    }
-    size_t node_id = list->len++;
-    joltage_node_t* node = &list->nodes[node_id];
-    node->id = node_id;
-    memcpy(node->state, state, sizeof(*state) * MAX_LIGHTS);
-    return node;
-}
-
-
 typedef struct queue_node queue_node_t;
 typedef struct queue_node {
     unsigned int state;
@@ -340,7 +295,6 @@ unsigned int machine_find_lights(int machine_id) {
     while (queue.n > 0) {
         unsigned int state = queue_pop(&queue);
         if (state == target) {
-            // printf("FOUND TARGET STATE (%#b) FOR MACHINE: %i\n", target, machine_id);
             return presses[state];
         }
         for (int i = 0; i < buttons->len; i++) {
@@ -356,13 +310,120 @@ unsigned int machine_find_lights(int machine_id) {
     return 0;
 }
 
+typedef unsigned int state_array_t[MAX_LIGHTS];
+void state_array_copy(state_array_t* dst, state_array_t* src) {
+    memcpy(dst, src, sizeof(state_array_t));
+}
+
+typedef struct {
+    state_array_t states[MAX_JOLTAGE_STATES];
+    size_t n_states;
+} state_table_t;
+
+size_t joltage_state_hash(const unsigned int* state) {
+    size_t hash = 0;
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        hash += hash * 31 + state[i];
+    }
+    return hash;
+}
+
+int state_table_find(state_table_t* table, const state_array_t state) {
+    size_t hash = joltage_state_hash(state);
+    int ihash = hash % MAX_JOLTAGE_STATES;
+    for (int i = 0; i < MAX_JOLTAGE_STATES; i++) {
+        int idx = (ihash + i) % MAX_JOLTAGE_STATES;
+        if (memcmp(table->states[idx], state, sizeof(state_array_t)) == 0) {
+            return idx;
+        }
+    }
+    return -1;
+}
+
+int state_table_push(state_table_t* table, const state_array_t state) {
+    int idx = state_table_find(table, state);
+    if (idx != -1) {
+        return idx;
+    }
+    size_t hash = joltage_state_hash(state);
+    int ihash = hash % MAX_JOLTAGE_STATES;
+    for (int i = 0; i < MAX_JOLTAGE_STATES; i++) {
+        int idx = (ihash + i) % MAX_JOLTAGE_STATES;
+        if (table->n_states > idx && memcmp(table->states[idx], state, sizeof(state_array_t)) != 0) {
+            continue;
+        }
+
+        memcpy(table->states[idx], state, sizeof(state_array_t));
+        table->n_states++;
+        return idx;
+    }
+    return -1;
+}
+
+void joltage_state_apply_button(state_array_t state, unsigned int button) {
+    int index = 0;
+    while ((button >> index ) > 0) {
+        if ((button >> index) & 0x1) {
+            state[index]++;
+        }
+        index++;
+    }
+    // return state;
+}
+
+int joltage_state_eq(state_array_t state, state_array_t target) {
+    return memcmp(state, target, sizeof(state_array_t));
+}
+
+int joltage_state_reachable(state_array_t state, state_array_t target) {
+    for (int i = 0; i < MAX_LIGHTS; i++) {
+        if (state[i] > target[i])
+            return 0;
+    }
+    return 1;
+}
+
 // State is now an array. How does this change the BFS solution?
 // Need a lot more storage. This might require recursive BFS?
 unsigned int machine_find_joltages(int machine_id) {
     joltage_array_t* target = &joltages[machine_id];
     button_list_t* buttons = &machine_buttons[machine_id];
-    node_list_t list = {0};
 
+    state_table_t table = {0}; 
+    unsigned int presses[MAX_JOLTAGE_STATES] = {0};
+    unsigned int visited[MAX_JOLTAGE_STATES] = {0};
+    queue_t queue = {0};
+    queue_push(&queue, 0);
+    state_array_t tmp_state = {0};
+    while (queue.n > 0) {
+        unsigned int state_idx = queue_pop(&queue);
+        assert(state_idx < MAX_JOLTAGE_STATES);
+        if (table.n_states >= MAX_JOLTAGE_STATES) {
+            printf("MAX JOLTAGES STATES REACHED\n");
+            break;
+        }
+        state_array_t* state = &table.states[state_idx];
+        if (joltage_state_eq(*state, target->vals) == 0) {
+            printf("FOUND TARGET STATE\n");
+            return presses[state_idx];
+        }
+
+        for (int i = 0; i < buttons->len; i++) {
+            state_array_copy(&tmp_state, state);
+            joltage_state_apply_button(tmp_state, buttons->list[i]);
+            if (!joltage_state_reachable(tmp_state, target->vals))
+                continue;
+            int idx = state_table_find(&table, tmp_state);
+            if (idx == -1) {
+                idx = state_table_push(&table, tmp_state);
+                presses[idx] = presses[state_idx] + 1;
+                queue_push(&queue, idx);
+                // printf("new state (%zu states)\n", table.n_states);
+            // } else {
+            //     printf("duplicate state\n");
+            }
+        }
+    }
 
     return 0;
 }
@@ -377,9 +438,23 @@ int part1(const char* filename) {
     return result;
 }
 
-void part2(const char* filename) {
+int part2(const char* filename) {
+    //
+    // Part 2 doesn't seem plausible with a graph solution since there are
+    // so many possible states. I'm sure there are optimizations to make 
+    // it possible, but another solution is likely much much easier.
+    //
+    // Cutting my losses here and going to attempt a LP solution in python
+    //
     reset_state();
     parse(filename);
+    int result = 0;
+    for (int i = 0; i < n_machines; i++) {
+        int presses = machine_find_joltages(i);
+        printf("Machine %i: %i presses\n", i, presses);
+        result += presses;
+    }
+    return result;
 }
 
 void test_sample() {
@@ -405,18 +480,38 @@ void test_sample() {
     assert(transitions[0][1023] == 1023);
     assert(transitions[1023][0] == 1023);
     assert(transitions[22][512] == transitions[512][22]);
+
+    int jstate[MAX_LIGHTS] = {0};
+    assert(joltage_state_hash(jstate) == 0);
+    joltage_state_apply_button(jstate, 0b1001);
+    size_t hash1 = joltage_state_hash(jstate);
+    assert(hash1 != 0);
+    joltage_state_apply_button(jstate, 0b1010);
+    size_t hash2 = joltage_state_hash(jstate);
+    assert(hash2 != 0);
+    assert(hash1 != hash2);
+
+    state_table_t table = {0};
+    state_array_t s = {0};
+    assert(state_table_find(&table, s) == 0);
+    s[1] = 1;
+    assert(state_table_find(&table, s) == -1);
+    int idx = state_table_push(&table, s);
+    assert(idx > -1);
+    assert(state_table_find(&table, s) == idx);
+    s[3] = 12;
+    assert(state_table_find(&table, s) == -1);
+    int idx2 = state_table_push(&table, s);
+    assert(idx2 > -1 && idx2 != idx);
+    assert(state_table_find(&table, s) == idx2);
 }
 
 int main() {
     build_transition_table();
 
-    // assert(part1("sample.txt") == 7);
-    // printf("Part 1 resut: %i\n", part1("input.txt"));
-
-    part2("sample.txt");
-    joltage_state state = joltage_state_from_arr(&joltages[0]);
-    assert(state.id == 7004005003);
-    joltage_state state2 = joltage_state_apply_button(&state, machine_buttons[0].list[0]);
-    printf("%zu\n", state2.id);
-    assert(state2.id == 8004005003);
+    assert(part1("sample.txt") == 7);
+    printf("Part 1 result: %i\n", part1("input.txt"));
+    // test_sample();
+    assert(part2("sample.txt") == 33);
+    // printf("Part 2 result: %i\n", part2("input.txt"));
 }
